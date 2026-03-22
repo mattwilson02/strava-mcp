@@ -1,6 +1,6 @@
 # Strava MCP Server
 
-An MCP (Model Context Protocol) server that gives Claude access to your Strava cycling data. Connect it to a Claude.ai project and Claude can pull your rides, power data, training volume, and more.
+An MCP (Model Context Protocol) server that gives Claude access to your Strava data. Connect it to a Claude.ai project and Claude can pull your rides, runs, power data, training volume, and more.
 
 Works with any Strava account — cycling, running, or multi-sport.
 
@@ -10,12 +10,12 @@ Once connected, Claude has access to these tools:
 
 | Tool | What it does |
 |------|-------------|
-| `get_athlete_profile` | Your Strava profile, weight, FTP, and year-to-date stats |
-| `get_recent_activities` | List recent rides with power, HR, distance, duration |
-| `get_activity_detail` | Deep dive on a specific ride — laps, segments, splits |
+| `get_athlete_profile` | Your Strava profile, weight, FTP, and year-to-date stats (rides + runs) |
+| `get_recent_activities` | List recent rides and runs with power, HR, distance, pace/speed |
+| `get_activity_detail` | Deep dive on a specific activity — laps, segments, splits |
 | `get_activity_power_data` | Second-by-second power/HR/cadence streams |
-| `get_weekly_training_summary` | Week-by-week volume, hours, intensity breakdown |
-| `get_power_bests` | Best power over 5s, 30s, 1m, 2m, 3m, 5m, 10m, 20m, 60m for any ride |
+| `get_weekly_training_summary` | Week-by-week volume, hours, ride/run breakdown |
+| `get_power_bests` | Best power over 5s, 30s, 1m, 2m, 3m, 5m, 10m, 20m, 60m for any activity |
 
 ## Setup (15 minutes)
 
