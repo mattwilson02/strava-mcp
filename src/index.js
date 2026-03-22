@@ -29,6 +29,7 @@ const strava = new StravaClient({
 
 // --- Express app ---
 const app = express();
+app.set("trust proxy", true);
 
 // Track active transports for cleanup
 const transports = {};
