@@ -12,61 +12,64 @@ const {
   PORT = "3000",
 } = process.env;
 
-if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET || !STRAVA_REFRESH_TOKEN) {
+if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
   console.error(
-    "Missing required env vars: STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET, STRAVA_REFRESH_TOKEN"
+    "Missing required env vars: STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET"
   );
   console.error("See README.md for setup instructions.");
   process.exit(1);
 }
 
-// --- Strava client ---
-const strava = new StravaClient({
-  clientId: STRAVA_CLIENT_ID,
-  clientSecret: STRAVA_CLIENT_SECRET,
-  refreshToken: STRAVA_REFRESH_TOKEN,
-});
-
 // --- Express app ---
 const app = express();
 app.set("trust proxy", true);
 
-// Track active transports for cleanup
+// --- Strava client & MCP (only when refresh token is configured) ---
 const transports = {};
 
-// SSE endpoint — Claude connects here
-app.get("/sse", async (req, res) => {
-  console.log("New SSE connection");
-  const transport = new SSEServerTransport("/messages", res);
-  transports[transport.sessionId] = transport;
-
-  const server = new McpServer({
-    name: "strava",
-    version: "1.0.0",
+if (STRAVA_REFRESH_TOKEN && STRAVA_REFRESH_TOKEN !== "your_refresh_token_here") {
+  const strava = new StravaClient({
+    clientId: STRAVA_CLIENT_ID,
+    clientSecret: STRAVA_CLIENT_SECRET,
+    refreshToken: STRAVA_REFRESH_TOKEN,
   });
 
-  registerTools(server, strava);
+  // SSE endpoint — Claude connects here
+  app.get("/sse", async (req, res) => {
+    console.log("New SSE connection");
+    const transport = new SSEServerTransport("/messages", res);
+    transports[transport.sessionId] = transport;
 
-  res.on("close", () => {
-    console.log(`SSE connection closed: ${transport.sessionId}`);
-    delete transports[transport.sessionId];
+    const server = new McpServer({
+      name: "strava",
+      version: "1.0.0",
+    });
+
+    registerTools(server, strava);
+
+    res.on("close", () => {
+      console.log(`SSE connection closed: ${transport.sessionId}`);
+      delete transports[transport.sessionId];
+    });
+
+    await server.connect(transport);
   });
 
-  await server.connect(transport);
-});
+  // Message endpoint — Claude sends tool calls here
+  app.post("/messages", async (req, res) => {
+    const sessionId = req.query.sessionId;
+    const transport = transports[sessionId];
 
-// Message endpoint — Claude sends tool calls here
-app.post("/messages", async (req, res) => {
-  const sessionId = req.query.sessionId;
-  const transport = transports[sessionId];
+    if (!transport) {
+      res.status(400).json({ error: "Unknown session" });
+      return;
+    }
 
-  if (!transport) {
-    res.status(400).json({ error: "Unknown session" });
-    return;
-  }
-
-  await transport.handlePostMessage(req, res);
-});
+    await transport.handlePostMessage(req, res);
+  });
+} else {
+  console.warn("STRAVA_REFRESH_TOKEN not set — MCP endpoints disabled. Visit /auth to connect Strava.");
+}
 
 // Root — info page
 app.get("/", (req, res) => {

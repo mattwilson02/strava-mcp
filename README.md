@@ -32,7 +32,7 @@ Once connected, Claude has access to these tools:
 ### Step 2: Install & Configure
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/strava-mcp.git
+git clone https://github.com/mattwilson02/strava-mcp.git
 cd strava-mcp
 npm install
 
@@ -49,11 +49,13 @@ STRAVA_REFRESH_TOKEN=your_refresh_token_here
 PORT=3000
 ```
 
-### Step 3: Get Your Refresh Token (local)
+### Step 3: Get Your Refresh Token
 
 ```bash
 npm start
 ```
+
+The server will start even without a refresh token (MCP endpoints are disabled until you connect Strava).
 
 Visit `http://localhost:3000/auth` in your browser. This will:
 1. Redirect you to Strava to authorize the app
@@ -138,7 +140,6 @@ Verify with: `curl http://localhost:3000/health`
 - The server authenticates with Strava using OAuth2 refresh tokens (auto-refreshes when expired)
 - Claude connects via SSE (Server-Sent Events) to the `/sse` endpoint
 - Tool calls from Claude arrive as POST requests to `/messages`
-- CORS is enabled for cross-origin requests
 - No data is stored or cached — everything is fetched live from Strava's API
 
 ## Strava API Rate Limits
