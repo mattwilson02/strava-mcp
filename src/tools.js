@@ -7,6 +7,16 @@ function formatDuration(seconds) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function formatPace(secondsPerUnit) {
+  const m = Math.floor(secondsPerUnit / 60);
+  const s = Math.round(secondsPerUnit % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function isSwim(type) {
+  return type === "Swim";
+}
+
 // Helper to format date
 function formatDate(iso) {
   return new Date(iso).toLocaleDateString("en-GB", {
@@ -66,6 +76,18 @@ export function registerTools(server, strava) {
                     moving_time: formatDuration(stats.ytd_run_totals?.moving_time || 0),
                   },
                 },
+                swim_totals: {
+                  all_time: {
+                    count: stats.all_swim_totals?.count,
+                    distance_m: Math.round(stats.all_swim_totals?.distance || 0),
+                    moving_time: formatDuration(stats.all_swim_totals?.moving_time || 0),
+                  },
+                  ytd: {
+                    count: stats.ytd_swim_totals?.count,
+                    distance_m: Math.round(stats.ytd_swim_totals?.distance || 0),
+                    moving_time: formatDuration(stats.ytd_swim_totals?.moving_time || 0),
+                  },
+                },
               },
               null,
               2
@@ -79,7 +101,7 @@ export function registerTools(server, strava) {
   // --- Get recent activities ---
   server.tool(
     "get_recent_activities",
-    "Get a list of recent activities (rides, runs, virtual) with key metrics. Use this to review training history and weekly volume.",
+    "Get a list of recent activities (rides, runs, swims, virtual variants) with key metrics. Use this to review training history and weekly volume.",
     {
       count: z
         .number()
@@ -103,32 +125,46 @@ export function registerTools(server, strava) {
 
       const activities = await strava.getActivities(params);
 
-      const SUPPORTED_TYPES = ["Ride", "VirtualRide", "Run", "VirtualRun"];
+      const SUPPORTED_TYPES = [
+        "Ride",
+        "VirtualRide",
+        "Run",
+        "VirtualRun",
+        "Swim",
+      ];
       const filtered = activities
         .filter((a) => SUPPORTED_TYPES.includes(a.type))
-        .map((a) => ({
-          id: a.id,
-          name: a.name,
-          date: formatDate(a.start_date_local),
-          type: a.type,
-          duration: formatDuration(a.moving_time),
-          distance_km: (a.distance / 1000).toFixed(1),
-          elevation_m: Math.round(a.total_elevation_gain),
-          avg_watts: a.average_watts || null,
-          weighted_avg_watts: a.weighted_average_watts || null,
-          max_watts: a.max_watts || null,
-          avg_hr: a.average_heartrate || null,
-          max_hr: a.max_heartrate || null,
-          avg_cadence: a.average_cadence || null,
-          avg_speed_kph: ((a.average_speed * 3600) / 1000).toFixed(1),
-          avg_pace_min_km: a.type.includes("Run")
-            ? formatDuration(1000 / a.average_speed) + "/km"
-            : null,
-          suffer_score: a.suffer_score || null,
-          kilojoules: a.kilojoules || null,
-          calories: a.calories || null,
-          has_power: a.device_watts || false,
-        }));
+        .map((a) => {
+          const swim = isSwim(a.type);
+          return {
+            id: a.id,
+            name: a.name,
+            date: formatDate(a.start_date_local),
+            type: a.type,
+            duration: formatDuration(a.moving_time),
+            distance_km: swim ? null : (a.distance / 1000).toFixed(1),
+            distance_m: swim ? Math.round(a.distance) : null,
+            elevation_m: swim ? null : Math.round(a.total_elevation_gain),
+            avg_watts: a.average_watts || null,
+            weighted_avg_watts: a.weighted_average_watts || null,
+            max_watts: a.max_watts || null,
+            avg_hr: a.average_heartrate || null,
+            max_hr: a.max_heartrate || null,
+            avg_cadence: a.average_cadence || null,
+            avg_speed_kph: swim ? null : ((a.average_speed * 3600) / 1000).toFixed(1),
+            avg_pace_min_km: a.type.includes("Run") && a.average_speed
+              ? formatDuration(1000 / a.average_speed) + "/km"
+              : null,
+            avg_pace_per_100m: swim && a.average_speed
+              ? formatPace(100 / a.average_speed) + "/100m"
+              : null,
+            avg_stroke_rate: swim ? a.average_cadence || null : null,
+            suffer_score: a.suffer_score || null,
+            kilojoules: a.kilojoules || null,
+            calories: a.calories || null,
+            has_power: a.device_watts || false,
+          };
+        });
 
       return {
         content: [
@@ -158,6 +194,7 @@ export function registerTools(server, strava) {
         strava.getActivityLaps(activity_id),
       ]);
 
+      const swim = isSwim(activity.type);
       const detail = {
         id: activity.id,
         name: activity.name,
@@ -167,8 +204,14 @@ export function registerTools(server, strava) {
         type: activity.type,
         duration: formatDuration(activity.moving_time),
         elapsed_time: formatDuration(activity.elapsed_time),
-        distance_km: (activity.distance / 1000).toFixed(1),
-        elevation_m: Math.round(activity.total_elevation_gain),
+        distance_km: swim ? null : (activity.distance / 1000).toFixed(1),
+        distance_m: swim ? Math.round(activity.distance) : null,
+        pool_length_m: swim ? activity.pool_length || null : null,
+        total_strokes: swim ? activity.total_strokes || null : null,
+        avg_pace_per_100m: swim && activity.average_speed
+          ? formatPace(100 / activity.average_speed) + "/100m"
+          : null,
+        elevation_m: swim ? null : Math.round(activity.total_elevation_gain),
         avg_watts: activity.average_watts || null,
         weighted_avg_watts: activity.weighted_average_watts || null,
         max_watts: activity.max_watts || null,
@@ -278,7 +321,7 @@ export function registerTools(server, strava) {
   // --- Weekly training summary ---
   server.tool(
     "get_weekly_training_summary",
-    "Get a week-by-week training summary for a date range. Shows total hours, distance, and activity count per week. Covers rides and runs.",
+    "Get a week-by-week training summary for a date range. Shows total hours, distance, and activity count per week. Covers rides, runs, and swims.",
     {
       weeks: z
         .number()
@@ -298,7 +341,13 @@ export function registerTools(server, strava) {
         after: Math.floor(after.getTime() / 1000),
       });
 
-      const SUPPORTED_TYPES = ["Ride", "VirtualRide", "Run", "VirtualRun"];
+      const SUPPORTED_TYPES = [
+        "Ride",
+        "VirtualRide",
+        "Run",
+        "VirtualRun",
+        "Swim",
+      ];
       const filtered = activities.filter((a) => SUPPORTED_TYPES.includes(a.type));
 
       // Group by ISO week
@@ -316,8 +365,10 @@ export function registerTools(server, strava) {
             week_starting: weekKey,
             rides: 0,
             runs: 0,
+            swims: 0,
             total_hours: 0,
             total_distance_km: 0,
+            total_swim_distance_m: 0,
             total_elevation_m: 0,
             total_kj: 0,
             avg_weighted_watts: [],
@@ -326,11 +377,17 @@ export function registerTools(server, strava) {
         }
 
         const w = weekMap[weekKey];
-        if (act.type.includes("Run")) w.runs++;
+        const swim = isSwim(act.type);
+        if (swim) w.swims++;
+        else if (act.type.includes("Run")) w.runs++;
         else w.rides++;
         w.total_hours += act.moving_time / 3600;
-        w.total_distance_km += act.distance / 1000;
-        w.total_elevation_m += act.total_elevation_gain;
+        if (swim) {
+          w.total_swim_distance_m += act.distance;
+        } else {
+          w.total_distance_km += act.distance / 1000;
+          w.total_elevation_m += act.total_elevation_gain;
+        }
         w.total_kj += act.kilojoules || 0;
         if (act.weighted_average_watts) {
           w.avg_weighted_watts.push(act.weighted_average_watts);
@@ -340,9 +397,13 @@ export function registerTools(server, strava) {
           type: act.type,
           date: formatDate(act.start_date_local),
           duration: formatDuration(act.moving_time),
-          distance_km: (act.distance / 1000).toFixed(1),
+          distance_km: swim ? null : (act.distance / 1000).toFixed(1),
+          distance_m: swim ? Math.round(act.distance) : null,
           avg_watts: act.average_watts || null,
           np: act.weighted_average_watts || null,
+          avg_pace_per_100m: swim && act.average_speed
+            ? formatPace(100 / act.average_speed) + "/100m"
+            : null,
         });
       }
 
@@ -353,8 +414,10 @@ export function registerTools(server, strava) {
           week_starting: w.week_starting,
           rides: w.rides,
           runs: w.runs,
+          swims: w.swims,
           total_hours: w.total_hours.toFixed(1),
           total_distance_km: Math.round(w.total_distance_km),
+          total_swim_distance_m: Math.round(w.total_swim_distance_m),
           total_elevation_m: Math.round(w.total_elevation_m),
           total_kj: Math.round(w.total_kj),
           avg_np:
