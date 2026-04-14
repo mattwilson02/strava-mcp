@@ -13,8 +13,13 @@ function formatPace(secondsPerUnit) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function isSwim(type) {
-  return type === "Swim";
+function activityKind(a) {
+  return a.sport_type || a.type;
+}
+
+function isSwim(a) {
+  const k = typeof a === "string" ? a : activityKind(a);
+  return k === "Swim";
 }
 
 // Helper to format date
@@ -133,14 +138,15 @@ export function registerTools(server, strava) {
         "Swim",
       ];
       const filtered = activities
-        .filter((a) => SUPPORTED_TYPES.includes(a.type))
+        .filter((a) => SUPPORTED_TYPES.includes(activityKind(a)))
         .map((a) => {
-          const swim = isSwim(a.type);
+          const kind = activityKind(a);
+          const swim = isSwim(kind);
           return {
             id: a.id,
             name: a.name,
             date: formatDate(a.start_date_local),
-            type: a.type,
+            type: kind,
             duration: formatDuration(a.moving_time),
             distance_km: swim ? null : (a.distance / 1000).toFixed(1),
             distance_m: swim ? Math.round(a.distance) : null,
@@ -152,7 +158,7 @@ export function registerTools(server, strava) {
             max_hr: a.max_heartrate || null,
             avg_cadence: a.average_cadence || null,
             avg_speed_kph: swim ? null : ((a.average_speed * 3600) / 1000).toFixed(1),
-            avg_pace_min_km: a.type.includes("Run") && a.average_speed
+            avg_pace_min_km: kind.includes("Run") && a.average_speed
               ? formatDuration(1000 / a.average_speed) + "/km"
               : null,
             avg_pace_per_100m: swim && a.average_speed
@@ -194,14 +200,15 @@ export function registerTools(server, strava) {
         strava.getActivityLaps(activity_id),
       ]);
 
-      const swim = isSwim(activity.type);
+      const kind = activityKind(activity);
+      const swim = isSwim(kind);
       const detail = {
         id: activity.id,
         name: activity.name,
         description: activity.description || null,
         date: formatDate(activity.start_date_local),
         start_time: new Date(activity.start_date_local).toLocaleTimeString("en-GB"),
-        type: activity.type,
+        type: kind,
         duration: formatDuration(activity.moving_time),
         elapsed_time: formatDuration(activity.elapsed_time),
         distance_km: swim ? null : (activity.distance / 1000).toFixed(1),
@@ -348,7 +355,7 @@ export function registerTools(server, strava) {
         "VirtualRun",
         "Swim",
       ];
-      const filtered = activities.filter((a) => SUPPORTED_TYPES.includes(a.type));
+      const filtered = activities.filter((a) => SUPPORTED_TYPES.includes(activityKind(a)));
 
       // Group by ISO week
       const weekMap = {};
@@ -377,9 +384,10 @@ export function registerTools(server, strava) {
         }
 
         const w = weekMap[weekKey];
-        const swim = isSwim(act.type);
+        const kind = activityKind(act);
+        const swim = isSwim(kind);
         if (swim) w.swims++;
-        else if (act.type.includes("Run")) w.runs++;
+        else if (kind.includes("Run")) w.runs++;
         else w.rides++;
         w.total_hours += act.moving_time / 3600;
         if (swim) {
@@ -394,7 +402,7 @@ export function registerTools(server, strava) {
         }
         w.activities.push({
           name: act.name,
-          type: act.type,
+          type: kind,
           date: formatDate(act.start_date_local),
           duration: formatDuration(act.moving_time),
           distance_km: swim ? null : (act.distance / 1000).toFixed(1),
@@ -509,6 +517,44 @@ export function registerTools(server, strava) {
                 power_bests: bests,
                 note: "These are best average power values over each duration within this single activity.",
               },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  );
+
+  // --- Debug: raw activity types ---
+  server.tool(
+    "debug_raw_activities",
+    "Debug helper: return raw type, sport_type, private, visibility, and date for the most recent N activities so we can see exactly what Strava is returning. Use when expected activities are missing from get_recent_activities.",
+    {
+      count: z.number().min(1).max(200).default(50),
+    },
+    async ({ count }) => {
+      const activities = await strava.getActivities({ perPage: count });
+      const rows = activities.map((a) => ({
+        id: a.id,
+        name: a.name,
+        date: a.start_date_local,
+        type: a.type,
+        sport_type: a.sport_type,
+        private: a.private,
+        visibility: a.visibility,
+      }));
+      const typeCounts = rows.reduce((acc, r) => {
+        const k = `${r.type}/${r.sport_type}`;
+        acc[k] = (acc[k] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { total: rows.length, type_counts: typeCounts, activities: rows },
               null,
               2
             ),
